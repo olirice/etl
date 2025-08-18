@@ -17,7 +17,6 @@ iceberg = [
     "dep:async-trait",
     "dep:base64",
     "dep:chrono",
-    "dep:etl-config",
     "dep:futures",
     "dep:iceberg",
     "dep:iceberg-catalog-rest",
@@ -35,7 +34,6 @@ iceberg = [
 
 [dependencies]
 etl = { workspace = true }
-etl-config = { workspace = true, optional = true }
 etl-postgres = { workspace = true }
 
 # Common dependencies
