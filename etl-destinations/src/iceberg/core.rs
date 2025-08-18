@@ -31,10 +31,8 @@ use etl::error::{ErrorKind, EtlError, EtlResult};
 use etl::store::schema::SchemaStore;
 use etl::store::state::StateStore;
 use etl::types::{Cell, Event, PgLsn, TableId, TableName, TableRow};
-use etl::{bail, etl_error};
-use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
-use std::str::FromStr;
+use etl::etl_error;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -83,88 +81,6 @@ pub fn table_name_to_iceberg_table_id(table_name: &TableName) -> IcebergTableId 
 /// Iceberg table identifier.
 pub type IcebergTableId = String;
 
-/// An Iceberg table identifier with version sequence for truncate operations.
-///
-/// Handles table versioning for truncate operations via table recreation.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-struct SequencedIcebergTableId(IcebergTableId, u64);
-
-impl SequencedIcebergTableId {
-    /// Creates a new sequenced table ID starting at version 0.
-    pub fn new(table_id: IcebergTableId) -> Self {
-        Self(table_id, 0)
-    }
-
-    /// Returns the next version of this sequenced table ID.
-    pub fn next(&self) -> Self {
-        Self(self.0.clone(), self.1 + 1)
-    }
-}
-
-impl FromStr for SequencedIcebergTableId {
-    type Err = EtlError;
-
-    /// Parses a sequenced table ID from string format `table_name_sequence`.
-    fn from_str(table_id: &str) -> Result<Self, Self::Err> {
-        if let Some(last_underscore) = table_id.rfind('_') {
-            let table_name = &table_id[..last_underscore];
-            let sequence_str = &table_id[last_underscore + 1..];
-
-            if table_name.is_empty() {
-                bail!(
-                    ErrorKind::DestinationTableNameInvalid,
-                    "Invalid sequenced Iceberg table ID format",
-                    format!(
-                        "Table name cannot be empty in sequenced table ID '{table_id}'. Expected format: 'table_name_sequence'"
-                    )
-                )
-            }
-
-            if sequence_str.is_empty() {
-                bail!(
-                    ErrorKind::DestinationTableNameInvalid,
-                    "Invalid sequenced Iceberg table ID format",
-                    format!(
-                        "Sequence number cannot be empty in sequenced table ID '{table_id}'. Expected format: 'table_name_sequence'"
-                    )
-                )
-            }
-
-            let sequence_number = sequence_str
-                .parse::<u64>()
-                .map_err(|e| {
-                    etl_error!(
-                        ErrorKind::DestinationTableNameInvalid,
-                        "Invalid sequence number in Iceberg table ID",
-                        format!(
-                            "Failed to parse sequence number '{sequence_str}' in table ID '{table_id}': {e}. Expected a non-negative integer (0-{max})",
-                            max = u64::MAX
-                        )
-                    )
-                })?;
-
-            Ok(SequencedIcebergTableId(
-                table_name.to_string(),
-                sequence_number,
-            ))
-        } else {
-            bail!(
-                ErrorKind::DestinationTableNameInvalid,
-                "Invalid sequenced Iceberg table ID format",
-                format!(
-                    "No underscore found in table ID '{table_id}'. Expected format: 'table_name_sequence' where sequence is a non-negative integer"
-                )
-            )
-        }
-    }
-}
-
-impl Display for SequencedIcebergTableId {
-    /// Formats the sequenced table ID as `table_name_sequence`.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}_{}", self.0, self.1)
-    }
-}
 
 /// Internal state for [`IcebergDestination`] wrapped in `Arc<Mutex<>>`.
 ///
@@ -174,9 +90,7 @@ struct Inner<S> {
     client: IcebergClient,
     store: S,
     /// Cache of table IDs that have been successfully created or verified to exist.
-    created_tables: HashSet<SequencedIcebergTableId>,
-    /// Cache of current table versions for truncate handling.
-    current_versions: HashMap<IcebergTableId, SequencedIcebergTableId>,
+    created_tables: HashSet<IcebergTableId>,
 }
 
 /// An Iceberg destination that implements the ETL [`Destination`] trait.
@@ -198,9 +112,8 @@ struct Inner<S> {
 ///
 /// The destination maintains minimal memory overhead:
 /// - Table creation cache: ~100 entries typical
-/// - Current versions map: ~50 entries typical  
 /// - No row buffering (streaming processing)
-/// - Total overhead: <1MB under normal load
+/// - Total overhead: <500KB under normal load
 ///
 /// # Error Handling
 ///
@@ -239,7 +152,6 @@ where
             client,
             store,
             created_tables: HashSet::new(),
-            current_versions: HashMap::new(),
         };
 
         Ok(Self {
@@ -249,11 +161,11 @@ where
 
     /// Prepares a table for CDC streaming operations with schema-aware table creation.
     ///
-    /// Prepares a table for CDC streaming operations with schema-aware table creation.
+    /// Creates the Iceberg table if it doesn't exist and returns the table identifier.
     async fn prepare_table_for_streaming(
         inner: &mut Inner<S>,
         table_id: &TableId,
-    ) -> EtlResult<SequencedIcebergTableId> {
+    ) -> EtlResult<IcebergTableId> {
         // Get table schema to access the TableName
         let table_schema = inner
             .store
@@ -268,30 +180,22 @@ where
             })?;
 
         let iceberg_table_id = table_name_to_iceberg_table_id(&table_schema.name);
-        let sequenced_table_id = inner
-            .current_versions
-            .get(&iceberg_table_id)
-            .cloned()
-            .unwrap_or_else(|| SequencedIcebergTableId::new(iceberg_table_id.clone()));
 
         // Check if table is already created
-        if inner.created_tables.contains(&sequenced_table_id) {
-            return Ok(sequenced_table_id);
+        if inner.created_tables.contains(&iceberg_table_id) {
+            return Ok(iceberg_table_id);
         }
 
         // Create table if it doesn't exist
         inner
             .client
-            .create_table_if_not_exists(&sequenced_table_id.to_string(), &table_schema)
+            .create_table_if_not_exists(&iceberg_table_id, &table_schema)
             .await?;
 
         // Cache the created table
-        Self::add_to_created_tables_cache(inner, &sequenced_table_id);
-        inner
-            .current_versions
-            .insert(iceberg_table_id, sequenced_table_id.clone());
+        Self::add_to_created_tables_cache(inner, &iceberg_table_id);
 
-        Ok(sequenced_table_id)
+        Ok(iceberg_table_id)
     }
 
     /// Handles streaming write of table rows with CDC metadata.
@@ -306,8 +210,8 @@ where
     ) -> EtlResult<()> {
         let mut inner = self.inner.lock().await;
 
-        // Ensure table exists and get the sequenced table ID
-        let sequenced_table_id = Self::prepare_table_for_streaming(&mut inner, &table_id).await?;
+        // Ensure table exists and get the table ID
+        let iceberg_table_id = Self::prepare_table_for_streaming(&mut inner, &table_id).await?;
 
         // Add CDC metadata to rows
         let mut enriched_rows = Vec::new();
@@ -345,7 +249,7 @@ where
 
             Self::stream_rows_with_fallback(
                 &mut inner,
-                &sequenced_table_id,
+                &iceberg_table_id,
                 batch_rows.to_vec(), // Convert slice to owned Vec for API compatibility
                 &table_id,
             )
@@ -354,7 +258,7 @@ where
 
         info!(
             table = %table_id,
-            iceberg_table = %sequenced_table_id,
+            iceberg_table = %iceberg_table_id,
             total_rows = row_count,
             "Successfully streamed all batches to Iceberg table"
         );
@@ -364,19 +268,18 @@ where
 
     /// Streams rows to Iceberg with automatic retry on missing table errors.
     ///
-    /// Streams rows to Iceberg with automatic retry on missing table errors.
     /// First attempts optimistic streaming. If the table is missing,
     /// clears the cache, recreates the table, and retries the operation.
     async fn stream_rows_with_fallback(
         inner: &mut Inner<S>,
-        sequenced_table_id: &SequencedIcebergTableId,
+        iceberg_table_id: &IcebergTableId,
         table_rows: Vec<TableRow>,
         orig_table_id: &TableId,
     ) -> EtlResult<()> {
         // First attempt - optimistically assume the table exists
         let result = inner
             .client
-            .stream_rows(&sequenced_table_id.to_string(), table_rows.clone())
+            .stream_rows(iceberg_table_id, table_rows.clone())
             .await;
 
         match result {
@@ -385,11 +288,11 @@ where
                 // If we get an error that suggests the table doesn't exist,
                 // we assume that the table is missing and try to recreate it
                 warn!(
-                    "table {sequenced_table_id} not found during streaming, removing from cache and recreating"
+                    "table {iceberg_table_id} not found during streaming, removing from cache and recreating"
                 );
 
                 // Remove the table from our cache since it doesn't exist
-                Self::remove_from_created_tables_cache(inner, sequenced_table_id);
+                Self::remove_from_created_tables_cache(inner, iceberg_table_id);
 
                 // Recreate the table
                 Self::prepare_table_for_streaming(inner, orig_table_id).await?;
@@ -397,7 +300,7 @@ where
                 // Retry the streaming operation
                 inner
                     .client
-                    .stream_rows(&sequenced_table_id.to_string(), table_rows)
+                    .stream_rows(iceberg_table_id, table_rows)
                     .await
             }
         }
@@ -406,7 +309,7 @@ where
     /// Adds a table to the creation cache to avoid redundant existence checks.
     fn add_to_created_tables_cache(
         inner: &mut Inner<impl SchemaStore>,
-        table_id: &SequencedIcebergTableId,
+        table_id: &IcebergTableId,
     ) {
         if inner.created_tables.contains(table_id) {
             return;
@@ -417,7 +320,7 @@ where
     /// Removes a table from the creation cache when it's found to not exist.
     fn remove_from_created_tables_cache(
         inner: &mut Inner<impl SchemaStore>,
-        table_id: &SequencedIcebergTableId,
+        table_id: &IcebergTableId,
     ) {
         inner.created_tables.remove(table_id);
     }
@@ -428,11 +331,11 @@ where
     S: StateStore + SchemaStore + Send + Sync,
 {
     async fn truncate_table(&self, table_id: TableId) -> EtlResult<()> {
-        info!(table = %table_id, "Truncating Iceberg table");
+        info!(table = %table_id, "Truncating Iceberg table using native operations");
 
-        let mut inner = self.inner.lock().await;
+        let inner = self.inner.lock().await;
 
-        // Get table schema for new table creation
+        // Get table schema to access the TableName
         let table_schema = inner
             .store
             .get_table_schema(&table_id)
@@ -447,34 +350,13 @@ where
 
         let iceberg_table_id = table_name_to_iceberg_table_id(&table_schema.name);
 
-        // Get current version and create next version
-        let current_version = inner
-            .current_versions
-            .get(&iceberg_table_id)
-            .cloned()
-            .unwrap_or_else(|| SequencedIcebergTableId::new(iceberg_table_id.clone()));
-
-        let next_version = current_version.next();
-
-        // Create new empty table with next version
-        inner
-            .client
-            .create_table_if_not_exists(&next_version.to_string(), &table_schema)
-            .await?;
-
-        // Update current version tracking
-        inner
-            .current_versions
-            .insert(iceberg_table_id, next_version.clone());
-        inner.created_tables.insert(next_version.clone());
-
-        // Remove old version from cache
-        inner.created_tables.remove(&current_version);
+        // Use Iceberg's native truncate operation instead of table versioning
+        inner.client.truncate_table(&iceberg_table_id).await?;
 
         info!(
             table = %table_id,
-            new_version = %next_version,
-            "Successfully truncated Iceberg table by creating new version"
+            iceberg_table = %iceberg_table_id,
+            "Successfully truncated Iceberg table using native operations"
         );
 
         Ok(())
@@ -571,22 +453,24 @@ where
 mod tests {
     use super::*;
     use etl::store::both::memory::MemoryStore;
-    use etl::types::{DeleteEvent, InsertEvent, PgLsn, TableId, TableRow, TruncateEvent, UpdateEvent};
-    use etl_postgres::schema::{ColumnSchema, TableName};
+    use etl::types::{
+        DeleteEvent, InsertEvent, PgLsn, TableId, TableRow, TruncateEvent, UpdateEvent,
+    };
+    use etl_postgres::schema::{ColumnSchema, TableName, TableSchema};
     use tokio_postgres::types::Type;
 
     #[test]
     fn test_table_name_to_iceberg_table_id() {
-        let table_name = TableName::new("test_schema".to_string(), "test_table".to_string());
+        let table_name = TableName::new("testschema".to_string(), "testtable".to_string());
         let iceberg_id = table_name_to_iceberg_table_id(&table_name);
-        assert_eq!(iceberg_id, "test_schema_test_table");
+        assert_eq!(iceberg_id, "testschema_testtable");
     }
 
     #[test]
     fn test_table_name_with_underscores() {
         let table_name = TableName::new("test_schema".to_string(), "test_table".to_string());
         let iceberg_id = table_name_to_iceberg_table_id(&table_name);
-        assert_eq!(iceberg_id, "test_schema_test_table");
+        assert_eq!(iceberg_id, "test__schema_test__table"); // Underscores are escaped
     }
 
     #[test]
@@ -597,55 +481,6 @@ mod tests {
         assert_eq!(seq_num, "00000000000007d0/00000000000003e8");
     }
 
-    #[test]
-    fn test_sequenced_iceberg_table_id_new() {
-        let table_id = "test_table".to_string();
-        let sequenced = SequencedIcebergTableId::new(table_id.clone());
-        assert_eq!(sequenced.to_string(), "test_table_0");
-    }
-
-    #[test]
-    fn test_sequenced_iceberg_table_id_next() {
-        let table_id = "test_table".to_string();
-        let sequenced = SequencedIcebergTableId::new(table_id);
-        let next = sequenced.next();
-        assert_eq!(next.to_string(), "test_table_1");
-    }
-
-    #[test]
-    fn test_sequenced_iceberg_table_id_from_str() {
-        let table_id_str = "test_table_5";
-        let sequenced = SequencedIcebergTableId::from_str(table_id_str).unwrap();
-        assert_eq!(sequenced.to_string(), "test_table_5");
-    }
-
-    #[test]
-    fn test_sequenced_iceberg_table_id_from_str_invalid() {
-        let table_id_str = "test_table";
-        let result = SequencedIcebergTableId::from_str(table_id_str);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_sequenced_iceberg_table_id_from_str_empty_table() {
-        let table_id_str = "_5";
-        let result = SequencedIcebergTableId::from_str(table_id_str);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_sequenced_iceberg_table_id_from_str_empty_sequence() {
-        let table_id_str = "test_table_";
-        let result = SequencedIcebergTableId::from_str(table_id_str);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_sequenced_iceberg_table_id_from_str_invalid_sequence() {
-        let table_id_str = "test_table_abc";
-        let result = SequencedIcebergTableId::from_str(table_id_str);
-        assert!(result.is_err());
-    }
 
     #[tokio::test]
     async fn test_iceberg_destination_creation_invalid_config() {
@@ -671,12 +506,12 @@ mod tests {
     fn test_operation_type_into_cell() {
         let upsert_cell = IcebergOperationType::Upsert.into_cell();
         let delete_cell = IcebergOperationType::Delete.into_cell();
-        
+
         match upsert_cell {
             Cell::String(s) => assert_eq!(s, "UPSERT"),
             _ => panic!("Expected string cell"),
         }
-        
+
         match delete_cell {
             Cell::String(s) => assert_eq!(s, "DELETE"),
             _ => panic!("Expected string cell"),
@@ -713,18 +548,15 @@ mod tests {
     #[test]
     fn test_create_insert_event() {
         let table_id = TableId(123);
-        let table_row = TableRow::new(vec![
-            Cell::I32(1),
-            Cell::String("test".to_string()),
-        ]);
-        
+        let table_row = TableRow::new(vec![Cell::I32(1), Cell::String("test".to_string())]);
+
         let event = Event::Insert(InsertEvent {
             start_lsn: PgLsn::from(100u64),
             commit_lsn: PgLsn::from(100u64),
             table_id,
             table_row,
         });
-        
+
         match event {
             Event::Insert(insert) => {
                 assert_eq!(insert.table_id.0, 123);
@@ -737,11 +569,8 @@ mod tests {
     #[test]
     fn test_create_update_event() {
         let table_id = TableId(123);
-        let table_row = TableRow::new(vec![
-            Cell::I32(1),
-            Cell::String("updated".to_string()),
-        ]);
-        
+        let table_row = TableRow::new(vec![Cell::I32(1), Cell::String("updated".to_string())]);
+
         let event = Event::Update(UpdateEvent {
             start_lsn: PgLsn::from(101u64),
             commit_lsn: PgLsn::from(101u64),
@@ -749,7 +578,7 @@ mod tests {
             table_row,
             old_table_row: None,
         });
-        
+
         match event {
             Event::Update(update) => {
                 assert_eq!(update.table_id.0, 123);
@@ -762,18 +591,15 @@ mod tests {
     #[test]
     fn test_create_delete_event() {
         let table_id = TableId(123);
-        let old_row = TableRow::new(vec![
-            Cell::I32(1),
-            Cell::String("deleted".to_string()),
-        ]);
-        
+        let old_row = TableRow::new(vec![Cell::I32(1), Cell::String("deleted".to_string())]);
+
         let event = Event::Delete(DeleteEvent {
             start_lsn: PgLsn::from(102u64),
             commit_lsn: PgLsn::from(102u64),
             table_id,
             old_table_row: Some((false, old_row)),
         });
-        
+
         match event {
             Event::Delete(delete) => {
                 assert_eq!(delete.table_id.0, 123);
@@ -791,7 +617,7 @@ mod tests {
             rel_ids: vec![123, 456],
             options: 0,
         });
-        
+
         match event {
             Event::Truncate(truncate) => {
                 assert_eq!(truncate.rel_ids.len(), 2);

@@ -9,8 +9,6 @@
 //! 6. Live end-to-end pipeline tests
 //! 7. Edge cases and error handling tests
 
-#![cfg(feature = "iceberg")]
-
 use std::env;
 use std::time::Duration;
 
@@ -194,8 +192,8 @@ async fn test_comprehensive_data_types() {
             Cell::I16(25),
             Cell::I64(1000000),
             Cell::Numeric(PgNumeric::from_str("12345.67").unwrap()),
-            Cell::F32(3.14159),
-            Cell::F64(2.718281828),
+            Cell::F32(std::f32::consts::PI),
+            Cell::F64(std::f64::consts::E),
             Cell::Bool(true),
             Cell::Date(NaiveDate::from_ymd_opt(1995, 6, 15).unwrap()),
             Cell::Time(NaiveTime::from_hms_opt(14, 30, 0).unwrap()),

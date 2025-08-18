@@ -59,6 +59,7 @@ enum DestinationType {
 }
 
 #[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Run the table copies benchmark
     Run {

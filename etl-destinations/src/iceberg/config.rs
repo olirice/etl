@@ -22,7 +22,6 @@ pub struct WriterConfig {
     pub enable_metrics: bool,
 }
 
-
 /// Default implementations for configuration fields.
 impl Default for WriterConfig {
     fn default() -> Self {
@@ -34,7 +33,6 @@ impl Default for WriterConfig {
         }
     }
 }
-
 
 // Default value functions for serde
 fn default_batch_size() -> usize {
@@ -52,8 +50,6 @@ fn default_max_commit_time_ms() -> u64 {
 fn default_enable_metrics() -> bool {
     true
 }
-
-
 
 #[cfg(test)]
 mod tests {
