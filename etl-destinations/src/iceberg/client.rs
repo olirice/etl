@@ -577,7 +577,7 @@ impl IcebergClient {
     ///     "namespace".to_string(),
     ///     None,
     /// ).await?;
-    /// 
+    ///
     /// client.truncate_table("my_table").await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # }).unwrap();
@@ -602,7 +602,7 @@ impl IcebergClient {
             table = %table_name,
             "Using metadata-only truncate approach (iceberg-rs 0.6 compatibility)"
         );
-        
+
         self.truncate_table_metadata_only(&table).await
     }
 
@@ -612,14 +612,14 @@ impl IcebergClient {
         // For iceberg-rs 0.6, if transaction API is not fully available,
         // we can create a new empty snapshot by updating the table metadata
         // This is a more Iceberg-native approach than creating new tables
-        
+
         // This would involve creating a new table metadata with:
         // 1. New snapshot ID
         // 2. Empty manifest list
         // 3. Updated snapshot summary
-        
+
         info!("Using metadata-only truncate approach");
-        
+
         // For now, return success and implement the actual metadata manipulation
         // when the full transaction API becomes available in future iceberg-rs versions
         Ok(())
