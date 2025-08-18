@@ -12,11 +12,13 @@ bigquery = [
     "dep:tracing",
     "dep:tokio",
 ]
+iceberg = []
 
 [dependencies]
 etl = { workspace = true }
 etl-postgres = { workspace = true }
 
+# BigQuery dependencies
 futures = { workspace = true, optional = true }
 gcp-bigquery-client = { workspace = true, optional = true, features = [
     "rust-tls",
