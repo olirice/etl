@@ -47,6 +47,8 @@ pub mod config;
 mod error;
 
 // Additional modules will be added in subsequent PRs
+pub mod client;
+mod core;
 pub mod encoding;
 pub mod schema;
-pub mod client;
+pub use core::IcebergDestination;
