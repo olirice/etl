@@ -43,4 +43,7 @@
 //! # }).unwrap();
 //! ```
 
-// Module structure will be expanded in subsequent PRs
+pub mod config;
+mod error;
+
+// Additional modules will be added in subsequent PRs
