@@ -6,7 +6,7 @@ members = [
     "etl-benchmarks",
     "etl-config",
     "etl-destinations",
-    "etl-examples",
+    "examples/supabase_iceberg",
     "etl-postgres",
     "etl-replicator",
     "etl-telemetry",

@@ -8,6 +8,7 @@ use etl::types::{Event, TableRow};
 use etl_config::Environment;
 use etl_config::shared::{BatchConfig, PgConnectionConfig, PipelineConfig, TlsConfig};
 use etl_destinations::bigquery::{BigQueryDestination, install_crypto_provider_for_bigquery};
+use etl_destinations::iceberg::IcebergDestination;
 use etl_postgres::schema::TableId;
 use etl_telemetry::init_tracing;
 use sqlx::postgres::PgPool;
@@ -53,9 +54,12 @@ enum DestinationType {
     Null,
     /// Use BigQuery as the destination
     BigQuery,
+    /// Use Apache Iceberg as the destination
+    Iceberg,
 }
 
 #[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Run the table copies benchmark
     Run {
@@ -130,6 +134,22 @@ enum Commands {
 
         #[arg(long)]
         bq_max_staleness_mins: Option<u16>,
+
+        /// Iceberg REST catalog URI (required when using Iceberg destination)
+        #[arg(long)]
+        iceberg_catalog_uri: Option<String>,
+
+        /// Iceberg warehouse location (required when using Iceberg destination)
+        #[arg(long)]
+        iceberg_warehouse: Option<String>,
+
+        /// Iceberg namespace (required when using Iceberg destination)
+        #[arg(long)]
+        iceberg_namespace: Option<String>,
+
+        /// Iceberg authentication token (optional)
+        #[arg(long)]
+        iceberg_auth_token: Option<String>,
     },
     /// Prepare the benchmark environment by cleaning up replication slots
     Prepare {
@@ -196,6 +216,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             bq_sa_key_file,
 
             bq_max_staleness_mins,
+
+            iceberg_catalog_uri,
+            iceberg_warehouse,
+            iceberg_namespace,
+            iceberg_auth_token,
         } => {
             start_pipeline(RunArgs {
                 host,
@@ -219,6 +244,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 bq_sa_key_file,
 
                 bq_max_staleness_mins,
+
+                iceberg_catalog_uri,
+                iceberg_warehouse,
+                iceberg_namespace,
+                iceberg_auth_token,
             })
             .await
         }
@@ -266,6 +296,11 @@ struct RunArgs {
     bq_sa_key_file: Option<String>,
 
     bq_max_staleness_mins: Option<u16>,
+
+    iceberg_catalog_uri: Option<String>,
+    iceberg_warehouse: Option<String>,
+    iceberg_namespace: Option<String>,
+    iceberg_auth_token: Option<String>,
 }
 
 #[derive(Debug)]
@@ -382,6 +417,29 @@ async fn start_pipeline(args: RunArgs) -> Result<(), Box<dyn Error>> {
 
             BenchDestination::BigQuery(bigquery_dest)
         }
+
+        DestinationType::Iceberg => {
+            let catalog_uri = args
+                .iceberg_catalog_uri
+                .ok_or("Iceberg catalog URI is required when using Iceberg destination")?;
+            let warehouse = args
+                .iceberg_warehouse
+                .ok_or("Iceberg warehouse is required when using Iceberg destination")?;
+            let namespace = args
+                .iceberg_namespace
+                .ok_or("Iceberg namespace is required when using Iceberg destination")?;
+
+            let iceberg_dest = IcebergDestination::new(
+                catalog_uri,
+                warehouse,
+                namespace,
+                args.iceberg_auth_token,
+                store.clone(),
+            )
+            .await?;
+
+            BenchDestination::Iceberg(iceberg_dest)
+        }
     };
 
     let mut table_copied_notifications = vec![];
@@ -434,6 +492,7 @@ struct NullDestination;
 enum BenchDestination {
     Null(NullDestination),
     BigQuery(BigQueryDestination<NotifyingStore>),
+    Iceberg(IcebergDestination<NotifyingStore>),
 }
 
 impl Destination for BenchDestination {
@@ -441,6 +500,7 @@ impl Destination for BenchDestination {
         match self {
             BenchDestination::Null(dest) => dest.truncate_table(table_id).await,
             BenchDestination::BigQuery(dest) => dest.truncate_table(table_id).await,
+            BenchDestination::Iceberg(dest) => dest.truncate_table(table_id).await,
         }
     }
 
@@ -452,6 +512,7 @@ impl Destination for BenchDestination {
         match self {
             BenchDestination::Null(dest) => dest.write_table_rows(table_id, table_rows).await,
             BenchDestination::BigQuery(dest) => dest.write_table_rows(table_id, table_rows).await,
+            BenchDestination::Iceberg(dest) => dest.write_table_rows(table_id, table_rows).await,
         }
     }
 
@@ -459,6 +520,7 @@ impl Destination for BenchDestination {
         match self {
             BenchDestination::Null(dest) => dest.write_events(events).await,
             BenchDestination::BigQuery(dest) => dest.write_events(events).await,
+            BenchDestination::Iceberg(dest) => dest.write_events(events).await,
         }
     }
 }

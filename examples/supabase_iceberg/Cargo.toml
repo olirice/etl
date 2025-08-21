@@ -1,0 +1,26 @@
+[package]
+name = "supabase-iceberg-example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+etl = { workspace = true }
+etl-destinations = { workspace = true, features = ["supabase-iceberg"] }
+etl-postgres = { workspace = true }
+
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-postgres = { workspace = true }
+tracing = { workspace = true, default-features = true }
+tracing-subscriber = { workspace = true, default-features = true, features = ["env-filter"] }
+chrono = { workspace = true, features = ["serde"] }
+dotenv = "0.15"
+url = "2.4"
+iceberg = "0.6"
+
+[[example]]
+name = "supabase_pipeline"
+path = "supabase_pipeline.rs"
+required-features = ["etl-destinations/supabase-iceberg"]
+
+
+
