@@ -32,6 +32,10 @@ iceberg = [
     "dep:url",
     "dep:uuid",
 ]
+# Feature flag for Supabase-specific Iceberg compatibility
+# Remove this when Supabase Storage implements standard Iceberg REST API
+# or when iceberg-catalog-rest adds native Supabase support
+supabase-iceberg = ["iceberg"]
 
 [dependencies]
 etl = { workspace = true }
