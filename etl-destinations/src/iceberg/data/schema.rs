@@ -122,7 +122,7 @@ impl SchemaMapper {
         ));
         fields.push(Field::new(
             "_CHANGE_TIMESTAMP",
-            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            DataType::Timestamp(TimeUnit::Microsecond, Some("+00:00".into())),
             true,
         ));
 
@@ -302,7 +302,7 @@ impl SchemaMapper {
         fields.push(Field::new("_CHANGE_SEQUENCE_NUMBER", DataType::Utf8, true));
         fields.push(Field::new(
             "_CHANGE_TIMESTAMP",
-            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            DataType::Timestamp(TimeUnit::Microsecond, Some("+00:00".into())),
             true,
         ));
 
@@ -324,7 +324,7 @@ impl SchemaMapper {
             DATE_OID => DataType::Date32,
             TIME_OID => DataType::Time64(TimeUnit::Microsecond),
             TIMESTAMP_OID => DataType::Timestamp(TimeUnit::Microsecond, None),
-            TIMESTAMPTZ_OID => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            TIMESTAMPTZ_OID => DataType::Timestamp(TimeUnit::Microsecond, Some("+00:00".into())),
             UUID_OID => DataType::LargeUtf8, // Convert to string
             JSON_OID | JSONB_OID => DataType::LargeUtf8,
 

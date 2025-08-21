@@ -6,8 +6,8 @@
 //! # Features
 //!
 //! - **Real-time CDC**: Support for INSERT, UPDATE, DELETE, and TRUNCATE operations
-//! - **Schema Evolution**: Automatic conversion from PostgreSQL to Iceberg schemas
-//! - **Multiple Catalogs**: Support for REST, SQL, and Glue catalogs
+//! - **Schema Conversion**: PostgreSQL to Iceberg schema mapping (evolution pending upstream support)
+//! - **Multiple Catalogs**: Support for REST, SQL, and Glue catalogs (with auto-detection)
 //! - **Cloud Storage**: Integration with S3, GCS, Azure, and local filesystem
 //! - **Batch Optimization**: Intelligent batching for optimal performance
 //! - **Error Recovery**: Comprehensive retry logic with exponential backoff
@@ -20,13 +20,13 @@
 //! use etl::store::both::memory::MemoryStore;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create destination with store
+//! // Create destination with store - automatically detects catalog type
 //! let store = MemoryStore::new();
 //! let destination = IcebergDestination::new(
-//!     "http://localhost:8181".to_string(),
+//!     "http://localhost:8181".to_string(),  // or Supabase URL
 //!     "s3://my-bucket/warehouse".to_string(),
 //!     "etl".to_string(),
-//!     None,
+//!     None,  // or Some("auth-token".to_string()) for Supabase
 //!     store,
 //! ).await?;
 //!
@@ -36,59 +36,22 @@
 //! # }
 //! ```
 
+// Core modules
+pub mod catalog;
 pub mod client;
 pub mod config;
-pub mod core;
-pub mod encoding;
-pub mod schema;
+pub mod constants;
+pub mod data;
+pub mod destination;
+
 
 // Re-export main types for convenience
+pub use catalog::{CatalogConfig, create_catalog};
 pub use client::IcebergClient;
-pub use core::IcebergDestination;
-pub use schema::{CellToArrowConverter, SchemaMapper};
+pub use constants::{DEFAULT_NAMESPACE, DEFAULT_TABLE_PREFIX, cdc_columns, cdc_operations};
+pub use data::{CellToArrowConverter, SchemaMapper};
+pub use destination::IcebergDestination;
 
-/// Default namespace for Iceberg tables.
-pub const DEFAULT_NAMESPACE: &str = "etl";
-
-/// Default table prefix for PostgreSQL tables.
-pub const DEFAULT_TABLE_PREFIX: &str = "pg_";
-
-/// CDC metadata column names for consistency across ETL destinations.
-pub mod cdc_columns {
-    /// Column indicating the type of change (INSERT, UPDATE, DELETE, UPSERT).
-    pub const CHANGE_TYPE: &str = "_CHANGE_TYPE";
-
-    /// Column containing the sequence number for ordering events.
-    pub const CHANGE_SEQUENCE_NUMBER: &str = "_CHANGE_SEQUENCE_NUMBER";
-
-    /// Column containing the timestamp when the change occurred.
-    pub const CHANGE_TIMESTAMP: &str = "_CHANGE_TIMESTAMP";
-}
-
-/// CDC operation types.
-pub mod cdc_operations {
-    /// Insert operation.
-    pub const INSERT: &str = "INSERT";
-
-    /// Update operation.
-    pub const UPDATE: &str = "UPDATE";
-
-    /// Delete operation.
-    pub const DELETE: &str = "DELETE";
-
-    /// Upsert operation (used for initial table sync).
-    pub const UPSERT: &str = "UPSERT";
-}
-
-#[cfg(test)]
-mod integration_tests {
-    use super::*;
-
-    #[test]
-    fn test_constants() {
-        assert_eq!(DEFAULT_NAMESPACE, "etl");
-        assert_eq!(DEFAULT_TABLE_PREFIX, "pg_");
-        assert_eq!(cdc_columns::CHANGE_TYPE, "_CHANGE_TYPE");
-        assert_eq!(cdc_operations::INSERT, "INSERT");
-    }
-}
+// Conditionally export Supabase types
+#[cfg(feature = "supabase-iceberg")]
+pub use catalog::SupabaseRestCatalog;

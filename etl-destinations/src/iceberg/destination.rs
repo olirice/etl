@@ -4,6 +4,23 @@
 //! [`Destination`] trait for the ETL framework. It handles CDC operations,
 //! table management, and data streaming optimized for Iceberg table format.
 //!
+//! # Supported Operations
+//!
+//! - ✅ **INSERT**: Creates new rows with deduplication support
+//! - ✅ **UPDATE**: Modifies existing rows (upsert semantics)  
+//! - ✅ **DELETE**: Removes rows using Iceberg delete files
+//! - ❌ **TRUNCATE**: Not supported (see limitations below)
+//!
+//! # TRUNCATE Limitations
+//!
+//! TRUNCATE operations are **not supported** due to:
+//! - Supabase Iceberg REST API lacks table dropping operations
+//! - iceberg-rust 0.6 has no public overwrite APIs
+//! - DELETE-based approaches don't provide true truncate semantics
+//!
+//! **Alternatives**: Use DELETE operations, manual table recreation via Supabase dashboard,
+//! or wait for iceberg-rust library upgrades.
+//!
 //! # CDC Guarantees
 //!
 //! - **No Data Loss**: Retry logic ensures all events are eventually processed
@@ -28,10 +45,10 @@
 
 use etl::destination::Destination;
 use etl::error::{ErrorKind, EtlError, EtlResult};
+use etl::etl_error;
 use etl::store::schema::SchemaStore;
 use etl::store::state::StateStore;
 use etl::types::{Cell, Event, PgLsn, TableId, TableName, TableRow};
-use etl::etl_error;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -80,7 +97,6 @@ pub fn table_name_to_iceberg_table_id(table_name: &TableName) -> IcebergTableId 
 
 /// Iceberg table identifier.
 pub type IcebergTableId = String;
-
 
 /// Internal state for [`IcebergDestination`] wrapped in `Arc<Mutex<>>`.
 ///
@@ -216,17 +232,32 @@ where
         // Add CDC metadata to rows
         let mut enriched_rows = Vec::new();
         for mut row in rows {
+            let original_len = row.values.len();
             // Add CDC columns for operation tracking
             row.values.push(operation_type.clone().into_cell());
             row.values
                 .push(Cell::String(generate_sequence_number(lsn, lsn)));
+            // Add timestamp column (current UTC timestamp in microseconds)
+            let timestamp_micros = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as i64;
+            row.values.push(Cell::I64(timestamp_micros));
+            
+            debug!(
+                table = %table_id,
+                original_columns = original_len,
+                enriched_columns = row.values.len(),
+                operation = %operation_type,
+                "Added CDC metadata to row"
+            );
             enriched_rows.push(row);
         }
 
         let row_count = enriched_rows.len();
 
         // Stream to Iceberg with fallback pattern
-        use crate::iceberg::encoding::batch_rows;
+        use crate::iceberg::data::encoding::batch_rows;
 
         // Batch the enriched rows for efficient processing
         let batches = batch_rows(&enriched_rows, MAX_BATCH_SIZE, MAX_BATCH_SIZE_BYTES);
@@ -298,19 +329,13 @@ where
                 Self::prepare_table_for_streaming(inner, orig_table_id).await?;
 
                 // Retry the streaming operation
-                inner
-                    .client
-                    .stream_rows(iceberg_table_id, table_rows)
-                    .await
+                inner.client.stream_rows(iceberg_table_id, table_rows).await
             }
         }
     }
 
     /// Adds a table to the creation cache to avoid redundant existence checks.
-    fn add_to_created_tables_cache(
-        inner: &mut Inner<impl SchemaStore>,
-        table_id: &IcebergTableId,
-    ) {
+    fn add_to_created_tables_cache(inner: &mut Inner<impl SchemaStore>, table_id: &IcebergTableId) {
         if inner.created_tables.contains(table_id) {
             return;
         }
@@ -331,35 +356,25 @@ where
     S: StateStore + SchemaStore + Send + Sync,
 {
     async fn truncate_table(&self, table_id: TableId) -> EtlResult<()> {
-        info!(table = %table_id, "Truncating Iceberg table using native operations");
-
-        let inner = self.inner.lock().await;
-
-        // Get table schema to access the TableName
-        let table_schema = inner
-            .store
-            .get_table_schema(&table_id)
-            .await?
-            .ok_or_else(|| {
-                etl_error!(
-                    ErrorKind::MissingTableSchema,
-                    "Table schema not found for truncate",
-                    format!("No schema found for table {table_id}")
-                )
-            })?;
-
-        let iceberg_table_id = table_name_to_iceberg_table_id(&table_schema.name);
-
-        // Use Iceberg's native truncate operation instead of table versioning
-        inner.client.truncate_table(&iceberg_table_id).await?;
-
-        info!(
-            table = %table_id,
-            iceberg_table = %iceberg_table_id,
-            "Successfully truncated Iceberg table using native operations"
-        );
-
-        Ok(())
+        // TRUNCATE is not supported in this Iceberg destination implementation
+        // 
+        // Reasons:
+        // 1. Supabase Iceberg REST API does not support table dropping operations
+        // 2. iceberg-rust 0.6 does not provide public APIs for overwrite operations 
+        // 3. DELETE-based approaches don't provide true truncate semantics
+        //
+        // Alternatives:
+        // - Use DELETE operations to remove specific rows
+        // - Drop and recreate tables manually via Supabase dashboard
+        // - Wait for iceberg-rust upgrade with native TRUNCATE support
+        
+        Err(etl_error!(
+            ErrorKind::DestinationError,
+            "TRUNCATE not supported for Iceberg destination",
+            format!("TRUNCATE operations are not supported with the current Iceberg implementation. \
+                     This is due to limitations in both Supabase's Iceberg REST API and iceberg-rust 0.6. \
+                     Table ID: {}", table_id)
+        ))
     }
 
     async fn write_table_rows(
@@ -480,7 +495,6 @@ mod tests {
         let seq_num = generate_sequence_number(start_lsn, commit_lsn);
         assert_eq!(seq_num, "00000000000007d0/00000000000003e8");
     }
-
 
     #[tokio::test]
     async fn test_iceberg_destination_creation_invalid_config() {

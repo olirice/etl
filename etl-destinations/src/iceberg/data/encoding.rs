@@ -1,6 +1,6 @@
 //! Data encoding utilities for converting table rows to Arrow RecordBatch.
 
-use crate::iceberg::schema::{CellToArrowConverter, SchemaMapper};
+use crate::iceberg::data::schema::{CellToArrowConverter, SchemaMapper};
 use etl::error::{ErrorKind, EtlError, EtlResult};
 use etl::etl_error;
 use etl::types::{Cell, TableRow};
@@ -8,7 +8,7 @@ use etl::types::{Cell, TableRow};
 use arrow::{
     array::{
         ArrayRef, BooleanBuilder, Date32Builder, Float32Builder, Float64Builder, Int16Builder,
-        Int32Builder, Int64Builder, LargeBinaryBuilder, LargeStringBuilder,
+        Int32Builder, Int64Builder, LargeBinaryBuilder, LargeStringBuilder, StringBuilder,
         Time64MicrosecondBuilder, TimestampMicrosecondBuilder, UInt32Builder,
     },
     datatypes::{DataType, Schema as ArrowSchema, TimeUnit},
@@ -123,6 +123,7 @@ fn build_array_for_field(
         DataType::UInt32 => build_uint32_array(rows, field_idx),
         DataType::Float32 => build_float32_array(rows, field_idx),
         DataType::Float64 => build_float64_array(rows, field_idx),
+        DataType::Utf8 => build_utf8_array(rows, field_idx),
         DataType::LargeUtf8 => build_string_array(rows, field_idx),
         DataType::LargeBinary => build_binary_array(rows, field_idx),
         DataType::Date32 => build_date32_array(rows, field_idx),
@@ -254,6 +255,34 @@ fn build_float64_array(rows: &[TableRow], field_idx: usize) -> EtlResult<ArrayRe
     Ok(Arc::new(builder.finish()))
 }
 
+/// Builds a UTF8 array from cell values.
+fn build_utf8_array(rows: &[TableRow], field_idx: usize) -> EtlResult<ArrayRef> {
+    let mut builder = StringBuilder::new();
+    for (row_idx, row) in rows.iter().enumerate() {
+        if field_idx < row.values.len() {
+            let value = CellToArrowConverter::cell_to_string(&row.values[field_idx]);
+            debug!(
+                row_idx = row_idx,
+                field_idx = field_idx,
+                row_values_len = row.values.len(),
+                cell_value = ?row.values[field_idx],
+                converted_value = ?value,
+                "Processing UTF8 cell for Arrow array"
+            );
+            builder.append_option(value.as_deref());
+        } else {
+            warn!(
+                row_idx = row_idx,
+                field_idx = field_idx,
+                row_values_len = row.values.len(),
+                "Field index exceeds row values length, appending null"
+            );
+            builder.append_null();
+        }
+    }
+    Ok(Arc::new(builder.finish()))
+}
+
 /// Builds a string array from cell values.
 fn build_string_array(rows: &[TableRow], field_idx: usize) -> EtlResult<ArrayRef> {
     let mut builder = LargeStringBuilder::new();
@@ -320,7 +349,8 @@ fn build_time64_array(rows: &[TableRow], field_idx: usize) -> EtlResult<ArrayRef
 
 /// Builds a timestamp array from cell values.
 fn build_timestamp_array(rows: &[TableRow], field_idx: usize) -> EtlResult<ArrayRef> {
-    let mut builder = TimestampMicrosecondBuilder::new();
+    // Create timestamp array with +00:00 timezone to match schema
+    let mut builder = TimestampMicrosecondBuilder::new().with_timezone("+00:00");
 
     for row in rows {
         if field_idx < row.values.len() {
