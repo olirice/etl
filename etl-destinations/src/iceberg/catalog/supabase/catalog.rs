@@ -58,7 +58,7 @@ pub struct SupabaseRestCatalog {
     inner: RestCatalog,
     #[allow(dead_code)] // Kept for potential future debugging/logging needs
     warehouse: String,
-    #[allow(dead_code)] // Kept for potential future debugging/logging needs  
+    #[allow(dead_code)] // Kept for potential future debugging/logging needs
     catalog_uri: String,
     http_client: SupabaseHttpClient,
 }
@@ -74,18 +74,21 @@ impl SupabaseRestCatalog {
         if let Ok(access_key) = std::env::var("AWS_ACCESS_KEY_ID") {
             props.insert("s3.access-key-id".to_string(), access_key);
         }
-        
+
         if let Ok(secret_key) = std::env::var("AWS_SECRET_ACCESS_KEY") {
             props.insert("s3.secret-access-key".to_string(), secret_key);
         }
-        
+
         if let Ok(s3_endpoint) = std::env::var("S3_ENDPOINT") {
             props.insert("s3.endpoint".to_string(), s3_endpoint);
         }
-        
+
         // Disable path-style access (use virtual-hosted-style like in Python example)
-        props.insert("s3.force-virtual-addressing".to_string(), "false".to_string());
-        
+        props.insert(
+            "s3.force-virtual-addressing".to_string(),
+            "false".to_string(),
+        );
+
         // Set region
         props.insert("s3.region".to_string(), "us-east-1".to_string());
 
@@ -97,7 +100,7 @@ impl SupabaseRestCatalog {
                 debug!("Catalog property: {} = {}", key, value);
             }
         }
-        
+
         let config = RestCatalogConfig::builder()
             .uri(catalog_uri.clone())
             .warehouse(warehouse.clone())

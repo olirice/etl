@@ -71,20 +71,26 @@ pub async fn create_catalog(
         props.insert("s3.access-key-id".to_string(), access_key);
         debug!("Added S3 access key ID to catalog configuration");
     }
-    
+
     if let Ok(secret_key) = std::env::var("AWS_SECRET_ACCESS_KEY") {
         props.insert("s3.secret-access-key".to_string(), secret_key);
         debug!("Added S3 secret access key to catalog configuration");
     }
-    
+
     if let Ok(s3_endpoint) = std::env::var("S3_ENDPOINT") {
         props.insert("s3.endpoint".to_string(), s3_endpoint.clone());
-        debug!("Added S3 endpoint to catalog configuration: {}", s3_endpoint);
+        debug!(
+            "Added S3 endpoint to catalog configuration: {}",
+            s3_endpoint
+        );
     }
-    
+
     // Disable path-style access (use virtual-hosted-style like in Python example)
-    props.insert("s3.force-virtual-addressing".to_string(), "false".to_string());
-    
+    props.insert(
+        "s3.force-virtual-addressing".to_string(),
+        "false".to_string(),
+    );
+
     // Set region (required by S3 protocol)
     props.insert("s3.region".to_string(), "us-east-1".to_string());
 

@@ -44,7 +44,6 @@ pub mod constants;
 pub mod data;
 pub mod destination;
 
-
 // Re-export main types for convenience
 pub use catalog::{CatalogConfig, create_catalog};
 pub use client::IcebergClient;

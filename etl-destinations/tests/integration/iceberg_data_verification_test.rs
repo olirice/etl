@@ -154,16 +154,23 @@ async fn test_data_actually_exists_after_write() {
     match query_result {
         Ok(rows) => {
             info!("📊 Query returned {} rows", rows.len());
-            
+
             if rows.is_empty() {
                 error!("❌ CRITICAL FAILURE: Table exists but contains NO DATA!");
-                error!("   This proves that write_events() is broken - it returns Ok() but doesn't commit data!");
-                error!("   Files are being written to storage but not committed to Iceberg table metadata!");
+                error!(
+                    "   This proves that write_events() is broken - it returns Ok() but doesn't commit data!"
+                );
+                error!(
+                    "   Files are being written to storage but not committed to Iceberg table metadata!"
+                );
                 panic!("Data verification failed - no data found after write operations");
             } else {
-                info!("✅ SUCCESS: Found {} rows of data in Iceberg table!", rows.len());
+                info!(
+                    "✅ SUCCESS: Found {} rows of data in Iceberg table!",
+                    rows.len()
+                );
                 info!("   Data is properly committed and queryable");
-                
+
                 // Show first few rows as proof
                 for (i, row) in rows.iter().take(3).enumerate() {
                     info!("   Row {}: {} values", i + 1, row.values.len());
@@ -239,7 +246,7 @@ async fn test_multiple_table_operations() {
     // Write data to both tables
     for (i, (table_id, table_name)) in table_ids.iter().zip(table_names.iter()).enumerate() {
         info!("📝 Writing data to table: {}", table_name.name);
-        
+
         let events = vec![
             Event::Insert(InsertEvent {
                 start_lsn: PgLsn::from((2000 + i * 10) as u64),
@@ -287,10 +294,10 @@ async fn test_multiple_table_operations() {
     };
 
     let expected_table_names = vec!["multi_test_table_one", "multi_test_table_two"];
-    
+
     for table_name in expected_table_names {
         info!("🔍 Verifying data in table: {}", table_name);
-        
+
         let rows = match client.query_table(table_name, None).await {
             Ok(rows) => rows,
             Err(e) => {

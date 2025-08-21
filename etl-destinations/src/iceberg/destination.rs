@@ -243,7 +243,7 @@ where
                 .unwrap_or_default()
                 .as_micros() as i64;
             row.values.push(Cell::I64(timestamp_micros));
-            
+
             debug!(
                 table = %table_id,
                 original_columns = original_len,
@@ -357,23 +357,26 @@ where
 {
     async fn truncate_table(&self, table_id: TableId) -> EtlResult<()> {
         // TRUNCATE is not supported in this Iceberg destination implementation
-        // 
+        //
         // Reasons:
         // 1. Supabase Iceberg REST API does not support table dropping operations
-        // 2. iceberg-rust 0.6 does not provide public APIs for overwrite operations 
+        // 2. iceberg-rust 0.6 does not provide public APIs for overwrite operations
         // 3. DELETE-based approaches don't provide true truncate semantics
         //
         // Alternatives:
         // - Use DELETE operations to remove specific rows
         // - Drop and recreate tables manually via Supabase dashboard
         // - Wait for iceberg-rust upgrade with native TRUNCATE support
-        
+
         Err(etl_error!(
             ErrorKind::DestinationError,
             "TRUNCATE not supported for Iceberg destination",
-            format!("TRUNCATE operations are not supported with the current Iceberg implementation. \
+            format!(
+                "TRUNCATE operations are not supported with the current Iceberg implementation. \
                      This is due to limitations in both Supabase's Iceberg REST API and iceberg-rust 0.6. \
-                     Table ID: {}", table_id)
+                     Table ID: {}",
+                table_id
+            )
         ))
     }
 

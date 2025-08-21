@@ -333,28 +333,29 @@ impl IcebergClient {
             .build();
 
         debug!("About to create table with catalog");
-        let create_result = self.catalog
+        let create_result = self
+            .catalog
             .create_table(table_ident.namespace(), table_creation)
             .await;
-            
+
         match create_result {
             Ok(table) => {
                 debug!("Table created successfully");
                 table
-            },
+            }
             Err(e) => {
                 debug!("Table creation failed: {:?}", e);
-                
+
                 // Check if this is the FileIO error but table was actually created
                 if e.to_string().contains("FileIO must be provided") {
                     debug!("FileIO error during creation, but checking if table exists anyway...");
-                    
+
                     // Try to load the table - it might have been created despite the error
                     match self.catalog.load_table(&table_ident).await {
                         Ok(table) => {
                             debug!("Table was actually created successfully, using loaded table");
                             table
-                        },
+                        }
                         Err(load_err) => {
                             debug!("Table load also failed: {:?}", load_err);
                             return Err(iceberg_error_to_etl_error(e));
@@ -984,7 +985,10 @@ impl IcebergClient {
         ));
         all_fields.push(ArrowField::new(
             "_CHANGE_TIMESTAMP",
-            ArrowDataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, Some("+00:00".into())),
+            ArrowDataType::Timestamp(
+                arrow::datatypes::TimeUnit::Microsecond,
+                Some("+00:00".into()),
+            ),
             true,
         ));
 
@@ -1052,10 +1056,12 @@ impl IcebergClient {
         record_batch: arrow::record_batch::RecordBatch,
         batch_idx: usize,
     ) -> EtlResult<()> {
-        use iceberg::transaction::{Transaction, ApplyTransactionAction};
+        use iceberg::transaction::{ApplyTransactionAction, Transaction};
         use iceberg::writer::base_writer::data_file_writer::DataFileWriterBuilder;
         use iceberg::writer::file_writer::ParquetWriterBuilder;
-        use iceberg::writer::file_writer::location_generator::{DefaultLocationGenerator, DefaultFileNameGenerator};
+        use iceberg::writer::file_writer::location_generator::{
+            DefaultFileNameGenerator, DefaultLocationGenerator,
+        };
         use iceberg::writer::{IcebergWriter, IcebergWriterBuilder};
         use parquet::basic::Compression;
         use parquet::file::properties::WriterProperties;
@@ -1074,13 +1080,14 @@ impl IcebergClient {
             .build();
 
         // Create location and file name generators
-        let location_gen = DefaultLocationGenerator::new(table.metadata().clone()).map_err(|e| {
-            etl_error!(
-                ErrorKind::DestinationError,
-                "Failed to create location generator",
-                e.to_string()
-            )
-        })?;
+        let location_gen =
+            DefaultLocationGenerator::new(table.metadata().clone()).map_err(|e| {
+                etl_error!(
+                    ErrorKind::DestinationError,
+                    "Failed to create location generator",
+                    e.to_string()
+                )
+            })?;
         let file_name_gen = DefaultFileNameGenerator::new(
             "data".to_string(),
             Some(uuid::Uuid::new_v4().to_string()), // Add unique UUID for each file
@@ -1113,13 +1120,16 @@ impl IcebergClient {
         })?;
 
         // Write the record batch using Iceberg writer
-        data_file_writer.write(record_batch.clone()).await.map_err(|e| {
-            etl_error!(
-                ErrorKind::DestinationIoError,
-                "Failed to write record batch to Iceberg",
-                e.to_string()
-            )
-        })?;
+        data_file_writer
+            .write(record_batch.clone())
+            .await
+            .map_err(|e| {
+                etl_error!(
+                    ErrorKind::DestinationIoError,
+                    "Failed to write record batch to Iceberg",
+                    e.to_string()
+                )
+            })?;
 
         // Close writer and get data files
         let data_files = data_file_writer.close().await.map_err(|e| {
@@ -1154,13 +1164,16 @@ impl IcebergClient {
         debug!("Applied fast append action to transaction");
 
         // Commit the transaction to the catalog
-        let _updated_table = updated_transaction.commit(&*self.catalog).await.map_err(|e| {
-            etl_error!(
-                ErrorKind::DestinationIoError,
-                "Failed to commit transaction to Iceberg catalog",
-                e.to_string()
-            )
-        })?;
+        let _updated_table = updated_transaction
+            .commit(&*self.catalog)
+            .await
+            .map_err(|e| {
+                etl_error!(
+                    ErrorKind::DestinationIoError,
+                    "Failed to commit transaction to Iceberg catalog",
+                    e.to_string()
+                )
+            })?;
 
         info!(
             batch = batch_idx + 1,
@@ -1554,9 +1567,8 @@ impl IcebergClient {
         // Create metadata with Iceberg field ID for proper mapping
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("iceberg.field.id".to_string(), field.id.to_string());
-        
-        Ok(ArrowField::new(&field.name, data_type, !field.required)
-            .with_metadata(metadata))
+
+        Ok(ArrowField::new(&field.name, data_type, !field.required).with_metadata(metadata))
     }
 
     /// Adds a column to an existing Iceberg table.
@@ -1752,7 +1764,6 @@ impl IcebergClient {
 
         Ok(())
     }
-
 }
 
 #[cfg(test)]

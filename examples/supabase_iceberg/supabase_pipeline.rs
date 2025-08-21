@@ -76,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pg_connection: pg_config,
         batch: BatchConfig {
             max_size: 1000,
-            max_fill_ms: 2000,  // Changed from 5000ms to 2000ms for faster flushing
+            max_fill_ms: 2000, // Changed from 5000ms to 2000ms for faster flushing
         },
         table_error_retry_delay_ms: 10000,
         max_table_sync_workers: 4,
@@ -122,25 +122,34 @@ async fn setup_postgres_database(postgres_url: &str) -> Result<(), Box<dyn std::
         .as_secs();
     let table_name = format!("orders_{}", unique_suffix);
     let full_table_name = format!("foo.{}", table_name);
-    
+
     info!(
         "📋 Using unique table name: {} to avoid conflicts",
         full_table_name
     );
 
     // Setup schema and table with unique name
-    client.execute("CREATE SCHEMA IF NOT EXISTS foo", &[]).await?;
+    client
+        .execute("CREATE SCHEMA IF NOT EXISTS foo", &[])
+        .await?;
     client.execute(&format!(
         "CREATE TABLE IF NOT EXISTS {} (order_id BIGSERIAL PRIMARY KEY, customer_name VARCHAR(255) NOT NULL, product VARCHAR(255) NOT NULL, quantity INTEGER NOT NULL, price DECIMAL(10,2) NOT NULL, order_date TIMESTAMPTZ DEFAULT NOW())",
         full_table_name
     ), &[]).await?;
 
     // Recreate publication with unique table
-    client.execute("DROP PUBLICATION IF EXISTS orders_publication", &[]).await?;
-    client.execute(&format!(
-        "CREATE PUBLICATION orders_publication FOR TABLE {}",
-        full_table_name
-    ), &[]).await?;
+    client
+        .execute("DROP PUBLICATION IF EXISTS orders_publication", &[])
+        .await?;
+    client
+        .execute(
+            &format!(
+                "CREATE PUBLICATION orders_publication FOR TABLE {}",
+                full_table_name
+            ),
+            &[],
+        )
+        .await?;
     Ok(())
 }
 

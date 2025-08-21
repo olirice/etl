@@ -20,12 +20,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🔍 Starting Supabase Iceberg table verification");
 
     // Get configuration from environment
-    let catalog_uri = env::var("CATALOG_URI")
-        .map_err(|_| "CATALOG_URI environment variable is required")?;
-    let warehouse = env::var("WAREHOUSE")
-        .map_err(|_| "WAREHOUSE environment variable is required")?;
-    let token = env::var("TOKEN")
-        .map_err(|_| "TOKEN environment variable is required")?;
+    let catalog_uri =
+        env::var("CATALOG_URI").map_err(|_| "CATALOG_URI environment variable is required")?;
+    let warehouse =
+        env::var("WAREHOUSE").map_err(|_| "WAREHOUSE environment variable is required")?;
+    let token = env::var("TOKEN").map_err(|_| "TOKEN environment variable is required")?;
 
     info!(
         catalog_uri = %catalog_uri,
@@ -47,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check if table exists
     let table_name = "foo_orders";
     let table_exists = client.table_exists(table_name).await?;
-    
+
     if !table_exists {
         error!("❌ Table '{}' does not exist!", table_name);
         return Ok(());
@@ -69,13 +68,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Query the table for data
     info!("🔍 Querying table '{}' for data...", table_name);
-    
+
     // Query with limit to avoid overwhelming output
     let rows = client.query_table(table_name, Some(10)).await?;
-    
+
     info!("📊 Query results:");
     info!("  Total rows returned: {}", rows.len());
-    
+
     if rows.is_empty() {
         error!("❌ Table '{}' contains NO DATA!", table_name);
         error!("   This means either:");
@@ -83,8 +82,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         error!("   2. The data was written but not committed properly");
         error!("   3. There's an issue with the query implementation");
     } else {
-        info!("✅ SUCCESS! Table '{}' contains {} rows of data!", table_name, rows.len());
-        
+        info!(
+            "✅ SUCCESS! Table '{}' contains {} rows of data!",
+            table_name,
+            rows.len()
+        );
+
         // Show first few rows as proof
         for (i, row) in rows.iter().take(3).enumerate() {
             info!("  Row {}: {} columns", i + 1, row.values.len());
@@ -92,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("    Column {}: {:?}", j + 1, cell);
             }
         }
-        
+
         if rows.len() > 3 {
             info!("  ... and {} more rows", rows.len() - 3);
         }
@@ -111,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  Table exists: {}", table_exists);
     info!("  Total tables in namespace: {}", tables.len());
     info!("  Rows in '{}': {}", table_name, all_rows.len());
-    
+
     if all_rows.is_empty() {
         error!("❌ CONCLUSION: The table exists but contains NO DATA");
         error!("   The pipeline may not be writing data correctly to Iceberg storage");
