@@ -27,38 +27,4 @@ name = "query_table"
 path = "query_table.rs"
 required-features = ["etl-destinations/supabase-iceberg"]
 
-[[example]]
-name = "test_transaction_writes"
-path = "test_transaction_writes.rs"
-required-features = ["etl-destinations/supabase-iceberg"]
-
-[[example]]
-name = "test_insert_operations"
-path = "test_insert_operations.rs"
-required-features = ["etl-destinations/supabase-iceberg"]
-
-[[example]]
-name = "cleanup_namespaces"
-path = "cleanup_namespaces.rs"
-required-features = ["etl-destinations/supabase-iceberg"]
-
-[[example]]
-name = "test_update_operations"
-path = "test_update_operations.rs"
-required-features = ["etl-destinations/supabase-iceberg"]
-
-[[example]]
-name = "test_delete_operations"
-path = "test_delete_operations.rs"
-required-features = ["etl-destinations/supabase-iceberg"]
-
-[[example]]
-name = "force_cleanup_namespaces"
-path = "force_cleanup_namespaces.rs"
-required-features = ["etl-destinations/supabase-iceberg"]
-
-[[example]]
-name = "debug_echo_namespace"
-path = "debug_echo_namespace.rs"
-required-features = ["etl-destinations/supabase-iceberg"]
 

@@ -15,7 +15,6 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
-use arrow::record_batch::RecordBatch;
 
 /// Maximum byte size for streaming data to Iceberg (optimized for S3 throughput).
 const MAX_SIZE_BYTES: usize = 30 * 1024 * 1024; // 30MB

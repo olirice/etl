@@ -197,8 +197,8 @@ async fn test_multiple_table_operations() {
     let store = MemoryStore::new();
 
     // Create multiple table schemas
-    let table_ids = vec![TableId(10001), TableId(10002)];
-    let table_names = vec![
+    let table_ids = [TableId(10001), TableId(10002)];
+    let table_names = [
         TableName::new("multi_test".to_string(), "table_one".to_string()),
         TableName::new("multi_test".to_string(), "table_two".to_string()),
     ];
